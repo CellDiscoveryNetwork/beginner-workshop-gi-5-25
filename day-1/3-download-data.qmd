@@ -1,0 +1,66 @@
+---
+title: "3 - Downloading data of interest"
+author: "CDN team"
+date: last-modified
+date-format: "[Last compiled on] D MMMM, YYYY"
+format:
+  html:
+    toc: true
+    toc_float: true
+    toc-location: left
+    toc-depth: 4
+    html-math-method: katex
+    embed-resources: true
+    self-contained-math: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, out.width = "100%", fig.align='center', 
+                      message = FALSE, warning = FALSE, cache = FALSE)
+options(width = 1200)
+```
+
+## Introduction
+
+In this notebook we are going to download the data for the rest of the workshop. We will be using the dataset from Elmentaite et al - [Single-Cell Sequencing of Developing Human Gut Reveals Transcriptional Links to Childhood Crohn’s Disease](https://www.sciencedirect.com/science/article/pii/S1534580720308868?via%3Dihub). This dataset contains 22,502 cells from the colon mucosa from 15 donors. The data can be downloaded from the CellxGene portal [here](https://cellxgene.cziscience.com/collections/17481d16-ee44-49e5-bcf0-28c0780d8c4a) or from the author's website [here](https://www.gutcellatlas.org/). 
+
+## Libraries
+```{r}
+library(anndataR)
+library(Seurat)
+```
+
+
+## Download data
+
+```{r}
+# Download the data in data/ directory
+download.file(
+    url = "https://cellgeni.cog.sanger.ac.uk/gutcellatlas/pediatric_RAWCOUNTS_cellxgene_c.h5ad",
+    destfile = "../data/workshop-data.h5ad",
+    method = "auto",
+    extra = "-r -p --random-wait")
+```
+
+Note that we downloaded the data in h5ad format, in order to be able to work with it using Seurat we need to convert it to that format. We'll use the function `read_h5ad` from `anndataR` to load the data and convert it to seurat in one line.
+```{r}
+se <- anndataR::read_h5ad("../data/workshop-data.h5ad", to = "Seurat")
+```
+
+Let's check how the Seurat object looks like
+```{r}
+se
+```
+
+Lastly, save this object so we can reuse it in the next notebook. 
+```{r}
+saveRDS(object = se, file = "../data/workshop-data.rds")
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
