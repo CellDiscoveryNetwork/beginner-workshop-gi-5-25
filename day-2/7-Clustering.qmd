@@ -1,5 +1,5 @@
 ---
-title: "6 - Clustering"
+title: "7 - Clustering"
 author: "CDN team"
 date: last-modified
 date-format: "[Last compiled on] D MMMM, YYYY"
@@ -109,43 +109,23 @@ Load Data
 
 ```{r}
 # Load the Seurat object with doublet and batch information
-se <- readRDS('../data/Covid_Flu_Seurat_Object_Quality.rds')
+se <- readRDS('../data/se_qc.rds')
 se 
 
 # Set color palette for cell types
-pal <- paletteMartin
-names(pal) <- sort(unique(se$Celltype))
-
 donor_pal <- c(
     "#66C2A4", "#41AE76", "#238B45", "#006D2C",
-    "#41B6C4", "#1D91C0", "#225EA8", "#253494", "#081D58",
-    "#FFEDA0", "#FED976", "#FEB24C", "#f79736", "#FD8D3C",
-    "#FC4E2A", "#E31A1C", "#BD0026", "#ad393b", "#800000", "#800050")
+    "#41B6C4", "#1D91C0", "#225EA8", "#253494",
+    "#FD8D3C", "#FC4E2A", "#E31A1C", "#BD0026",
+    "#ad393b", "#800000", "#800050")
 
 names(donor_pal) <- c(
-    "Normal 1", "Normal 2", "Normal 3", "Normal 4",
-    "Flu 1", "Flu 2", "Flu 3", "Flu 4", "Flu 5",
-    "nCoV 1", "nCoV 2", "nCoV 3", "nCoV 4", "nCoV 5",
-    "nCoV 6", "nCoV 7", "nCoV 8", "nCoV 9", "nCoV 10", "nCoV 11"  
+    "T024", "T036", "T44", "T057", "T110", "T160", "T161", "T182",
+    "T017", "T019", "T176", "T189", "T197", "T203", "T202"
 )
 ```
 
 ## Set Up
-
-### PCA
-
-Let's first look at the data according to the top 2 principal components.
-
-```{r, fig.width=6, fig.height=6}
-celltype_pca <- DimPlot(
-        se,
-        reduction = "pca",
-        group.by = 'Celltype',
-        cols = pal
-        ) 
-
-celltype_pca
-```
 
 ### Construct the kNN graph with `FindNeighbors()`:
 
@@ -165,7 +145,7 @@ The default values of `FindNeighbors()` are:
 se <- se %>%
     FindNeighbors( 
         reduction = "pca",
-        dims = 1:20,
+        dims = 1:30,
         k.param = 20,
         verbose = FALSE
     )
@@ -321,7 +301,7 @@ We can see that by looking at the SNN graphs we prune connections between extrem
 UMAP runs on the PCA space. The dims parameter specifies which dimensions of the PCA space to use for the UMAP calculation. The default value is 1:30, which uses all dimensions. The n.components parameter specifies the number of dimensions in the UMAP embedding. The default value is 2.
 
 ```{r}
-se <- se %>% 
+se <- se %>%
     RunUMAP(dims = 1:30, verbose = FALSE) # Run UMAP 
 ```
 
@@ -343,7 +323,7 @@ Community detection doesn't follow a hierarchical clustering process. The algori
 ```{r fig.width=9, fig.height=6}
 se@meta.data %>%
     dplyr::count(
-        Celltype, RNA_snn_res.0.01, RNA_snn_res.0.05,
+        RNA_snn_res.0.01, RNA_snn_res.0.05,
         RNA_snn_res.0.1, RNA_snn_res.0.25) %>% 
     ggplot(
         aes(axis1 = RNA_snn_res.0.01, axis2 = RNA_snn_res.0.05,
@@ -372,8 +352,7 @@ We see how in this case it follows a pretty good hierarchical splitting across h
 ```{r, fig.width=18, fig.height=5}
 DimPlot(
     se,
-    group.by = c(
-        "Celltype","RNA_snn_res.0.05", "RNA_snn_res.0.1"),
+    group.by = c("RNA_snn_res.0.05", "RNA_snn_res.0.1"),
     label = TRUE
     )
 ```
@@ -422,7 +401,7 @@ diversityPerGroup <- function(df, species, group, diversity_metric = 'simpson') 
 # Calculate simpson's diversity per cluster
 clusterMetrics <- diversityPerGroup(se@meta.data,
                         species = 'RNA_snn_res.0.05',
-                        group = 'Sample ID',
+                        group = 'sample_id',
                         diversity_metric = 'simpson')
 
 # Calculate number of cells per cluster and join to metrics table
@@ -433,17 +412,17 @@ head(clusterMetrics)
 Let's visualize Simpson's diversity index by cluster
 
 ```{r}
-ggplot(clusterMetrics, aes(x = RNA_snn_res.0.05, y = n)) +
+ggplot(clusterMetrics, aes(x = forcats::fct_reorder(RNA_snn_res.0.05, -n), y = n)) +
   geom_segment(aes(
           x = RNA_snn_res.0.05, xend = RNA_snn_res.0.05,
           y = 0, yend = n),
       size = 1.5, color = 'grey80') + # Draw lines for lollipops
-  geom_point(aes(color = `Sample ID_diversity`), size = 5) + # Add colored lollipop 'heads', coloring by 'Sample ID_diversity'
+  geom_point(aes(color = `sample_id_diversity`), size = 5) + # Add colored lollipop 'heads', coloring by 'Sample ID_diversity'
   scale_y_log10() +
   # scale_x_continuous(breaks = seq(0, 20)) + 
   scale_colour_viridis(
       option = "C",
-      name = "Sample ID Diversity",
+      name = "sample_id_diversity",
       direction = 1,
       limits = c(0, 1)) + # Colorblind-friendly, vibrant color palette
   theme_minimal(base_size = 10) +
@@ -458,14 +437,14 @@ ggplot(clusterMetrics, aes(x = RNA_snn_res.0.05, y = n)) +
 
 ```
 
-Clusters 4 and 6 appear to have very low sample diversity. Let's investigate which samples are in each cluster to see if there is any bias.
+Clusters 5 & 11 appear to have lower sample diversity. Let's investigate which samples are in each cluster to see if there is any bias.
 
 Plot sample distribution per cluster
 
 ```{r fig.width = 8, fig.height = 6}
 # Prepare the data for plotting
 plot_sample <- se@meta.data %>%
-  count(RNA_snn_res.0.05, `Sample ID`) %>%
+  count(RNA_snn_res.0.05, sample_id) %>%
   group_by(RNA_snn_res.0.05) %>%
   mutate(proportion = n / sum(n)) %>%
   ungroup()
@@ -475,7 +454,7 @@ ggplot(
     plot_sample,
     aes(x = factor(RNA_snn_res.0.05),
         y = proportion,
-        fill = `Sample ID`)) +
+        fill = sample_id)) +
   geom_bar(stat = "identity", position = "stack") +
   labs(
       title = "Distribution of Sample IDs Across Clusters",
@@ -487,10 +466,10 @@ ggplot(
   scale_fill_manual(values = donor_pal)
 ```
 
-Sample `Flu 1` appears to make up the majority of Cluster 4 and `Flu 3` of cluster 6. Looking at it with a table -
+Sample `T036` appears to make up the majority of Cluster 5 and `T176` of cluster 11. Looking at it with a table -
 
 ```{r}
-table(se$`Sample ID`, se$RNA_snn_res.0.05)
+table(se$sample_id, se$RNA_snn_res.0.05)
 ```
 
 Another way to visualize cluster diversity is through a stacked bar plot instead of lollipops. This provides a super clear way to compare these numerical metrics side by side.
@@ -500,16 +479,16 @@ ggplot(clusterMetrics,
        aes(
            x = 1, 
            y = as.character(RNA_snn_res.0.05),
-           fill = `Sample ID_diversity`,
+           fill = sample_id_diversity,
            label = n)) +
   geom_tile(colour = "white") +
   geom_text(nudge_x = 1.5, size = 3) +
-  geom_text(aes(label = signif(`Sample ID_diversity`, 2)),size = 3) +
-  scale_fill_distiller(palette = "Spectral", limits = c(0,1)) + theme_classic() +
+  geom_text(aes(label = signif(sample_id_diversity, 2)),size = 3) +
+  scale_fill_distiller(palette = "Spectral", limits = c(0, 1)) + theme_classic() +
   coord_fixed(ratio = 0.25) + 
-  expand_limits(x = c(0.5,3)) +
+  expand_limits(x = c(0.5, 3)) +
   labs(
-      x = "Diversity                                   Size",
+      x = "Diversity                                              Size",
       y = "RNA_snn_res.0.05",
       fill = "Simpson Diversity\nfor Sample") +
   theme(axis.text.y = element_text(hjust = 1, vjust = 0.5, size = 12),
@@ -627,7 +606,7 @@ FeaturePlot(
       palette = "BrBG") | d5
 ```
 
-Cluster 5 seems to have a specifically poor silhouette score. This potentially means these cells are not clustered correctly. This could be due to this cluster being under-clustered - leading to multiple cell types/states ending up within it. Let's check if there is heterogeneity within cluster 5. In the next notebook we will take a closer look on what might be going on
+Parts of cluster 0, 1, 5, and 6 seem to have reginos with a specifically poor silhouette score. This potentially means these cells are not clustered correctly. This could be due to this cluster being under-clustered - leading to multiple cell types/states ending up within it. Let's check if there is heterogeneity within cluster 5. In the next notebook we will take a closer look on what might be going on
 
 ## Save Seurat object
 
