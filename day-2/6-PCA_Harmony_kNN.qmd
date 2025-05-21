@@ -1,5 +1,5 @@
 ---
-title: "5 - PCA, Harmony Integration, and kNN Graphs"
+title: "6 - PCA, Harmony Integration, and kNN Graphs"
 author: "CDN team"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 format:
@@ -24,7 +24,7 @@ options(width = 1200)
 
 ## Introduction
 
-This vignette is a hands-on guide to understanding and applying principal component analysis (PCA), k-nearest neighbors (kNN) graph creation, and harmony integration in the context of scRNAseq data analysis. PCA and Harmony are two common methods for creating a dimensionality-reduced "latent space" from scRNAseq cell x gene matrices. "Latent space" is the term used to describe any matrix that can be calculated with a reduced size while still preserving the relationships between samples of the original matrix. PCA creates the latent space by deriving the combinations of genes that describe the greatest variance across samples in the dataset. Harmony creates a latent space that reduces a batch effect by reducing differences between batches within cluster or latent space variables separately. We calculate the final kNN graph of relationships between cells based on a latent space, because the process of creating the graph scales multiplicatively with number of input features. 
+This vignette is a hands-on guide to understanding and applying principal component analysis (PCA), k-nearest neighbors (kNN) graph creation, and harmony integration in the context of scRNAseq data analysis. PCA and Harmony are two common methods for creating a dimensionality-reduced "latent space" from scRNAseq cell x gene matrices. "Latent space" is the term used to describe any matrix that can be calculated with a reduced size while still preserving the relationships between samples of the original matrix. **PCA creates the latent space by deriving the combinations of genes that describe the greatest variance across samples in the dataset. Harmony creates a latent space that reduces a batch effect by reducing differences between batches within cluster or latent space variables separately.** We calculate the final kNN graph of relationships between cells based on a latent space, because the process of creating the graph scales multiplicatively with number of input features. 
 
 ### Vocabulary
 
@@ -159,7 +159,7 @@ set.seed(687)
 We're going to be working with a dataset from the paper - [Immunophenotyping of COVID-19 and influenza highlights the role of type I interferons in development of severe COVID-19](https://doi.org/10.1126/sciimmunol.abd1554) Download data from the [cellxgene](https://cellxgene.cziscience.com/collections/4f889ffc-d4bc-4748-905b-8eb9db47a2ed) portal.
 
 ```{r message=FALSE, warning=FALSE, output=FALSE}
-se <- readRDS("../data/Covid_Flu_Seurat_Object.rds")
+se <- readRDS("../data/se_qc.rds")
 ```
 
 ### Color palette
@@ -167,15 +167,13 @@ se <- readRDS("../data/Covid_Flu_Seurat_Object.rds")
 ```{r}
 donor_pal <- c(
     "#66C2A4", "#41AE76", "#238B45", "#006D2C",
-    "#41B6C4", "#1D91C0", "#225EA8", "#253494", "#081D58",
-    "#FFEDA0", "#FED976", "#FEB24C", "#FD8D3C",
-    "#FC4E2A", "#E31A1C", "#BD0026", "#800026")
+    "#41B6C4", "#1D91C0", "#225EA8", "#253494",
+    "#FD8D3C", "#FC4E2A", "#E31A1C", "#BD0026",
+    "#ad393b", "#800000", "#800050")
 
 names(donor_pal) <- c(
-    "Normal 1", "Normal 2", "Normal 3", "Normal 4",
-    "Flu 1", "Flu 2", "Flu 3", "Flu 4", "Flu 5",
-    "nCoV 1", "nCoV 2", "nCoV 3_4", "nCoV 5",
-    "nCoV 6", "nCoV 7_8", "nCoV 9_10", "nCoV 11"  
+    "T024", "T036", "T44", "T057", "T110", "T160", "T161", "T182",
+    "T017", "T019", "T176", "T189", "T197", "T203", "T202"
 )
 ```
 
@@ -238,7 +236,7 @@ nCount_RNA_pca
 celltype_pca <- DimPlot(
         se,
         reduction = "pca",
-        group.by = 'Celltype'
+        group.by = 'category'
         ) 
 
 celltype_pca
@@ -247,24 +245,24 @@ celltype_pca
 DimPlot(
     se,
     reduction = 'pca',
-    group.by = 'Celltype',
-    dims = c(3,4)
+    group.by = 'category',
+    dims = c(2,3)
     )
 
-donor_pca <- DimPlot(
+sample_pca <- DimPlot(
         se,
         reduction = "pca",
-        group.by = 'donor_id'
+        group.by = 'sample_id'
         ) + scale_color_manual(values = donor_pal)
 
-donor_pca
+sample_pca
 ```
 
 Based on our DimPlot of the first 2 PCs, we can see the major axes of variation in the data are 
 
-- PC1: myeloid (negative) vs. lymphoid (positive)
+- PC1: epithelial (negative) vs.  immune/stromal (positive)
 
-- PC2: erythroid (positive) vs. immune 
+- PC2: immune (positive) vs. mesenchymal (negative)
 
 By visualizing loadings of these PCs, we can see which genes are driving the differences between these groups of cells
 
@@ -277,7 +275,7 @@ VizDimLoadings(
     balanced = TRUE)
 ```
 
-And indeed, we can see that known myeloid genes S100A8, CST, LYZ are in the negative direction of PC_1, and erythroid markers like PF4 are in positive direction of PC_2
+And indeed, we can see that known epithelail genes MEP1A, FABP1, EPCAM are in the negative direction of PC_1, and immune markers like CD79A and MS4A1 are in positive direction of PC_2
 
 #### What if I used 10, 30, 50, or even 100 PCs? 
 So far we haven't even looked beyond PC's 1 and 2. The PCA algorithm decides on the first PCs first, then moves down to the next. If we recalculate PCA, asking for 10 PCs, we will see that PC_1 and PC_2 are the same, except sometimes when the directions are flipped. The directions of PCs are randomly chosen at the beginning of the algorithm. 
@@ -360,7 +358,7 @@ seSub <- subset(se, downsample = 1000) %>%
         NormalizeData() %>%
         FindVariableFeatures() %>%
         ScaleData() %>%
-        RunPCA(npcs = 999)
+        RunPCA(npcs = 100)
 
 varExplainedsub <- data.frame(
     varExplained = seSub@reductions$pca@stdev^(2) / seSub@reductions$pca@misc$total.variance,
@@ -403,7 +401,7 @@ sen <- sen %>% NormalizeData(verbose = FALSE) %>%
 
 sen <- sen %>% 
     RunPCA(
-        npcs = 999,
+        npcs = 100,
         verbose = FALSE
     )
 
@@ -582,16 +580,16 @@ As we can see, with a higher k.param, there are fewer clusters. This is because 
 celltype_pca <- DimPlot(
         seSub,
         reduction = "pca",
-        group.by = 'Celltype'
+        group.by = 'category'
         ) 
 
-donor_pca <- DimPlot(
+sample_pca <- DimPlot(
         seSub,
         reduction = "pca",
-        group.by = 'donor_id'
+        group.by = 'sample_id'
         ) + scale_color_manual(values = donor_pal)
 
-(knn5 + knn20) / (celltype_pca + donor_pca)
+(knn5 + knn20) / (celltype_pca + sample_pca)
 ```
 
 Even with a smaller k, we are finding multiple clusters within the authors' overarching "classical monocyte" label. However, we see a reasonable distribution of donors across them.
@@ -608,11 +606,11 @@ se <- se %>%
         reduction.name = 'pca_umap')
 
 metadata <- se@meta.data
-plot_data <- as.data.frame(table(metadata$seurat_clusters, metadata$Celltype))
-colnames(plot_data) <- c("Cluster", "Celltype", "Freq")
+plot_data <- as.data.frame(table(metadata$seurat_clusters, metadata$category))
+colnames(plot_data) <- c("Cluster", "category", "Freq")
 
 ggplot(plot_data,
-       aes(axis1 = Cluster, axis2 = Celltype, y = Freq)) +
+       aes(axis1 = Cluster, axis2 = category, y = Freq)) +
     geom_alluvium(aes(fill = Cluster), width = 0.1) +
     geom_stratum(width = 0.1) +
     geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
@@ -623,20 +621,35 @@ ggplot(plot_data,
     theme_minimal()
 ```
 
-Our low resolution clustering has captured the major cell types: 0 appears to be myeloid cells, 1 is T cells, 2 is NK, 3 is B, 4 is platelets, 6 and 7 are RBCs and one of the Uncategorized clusters. But 5 is a secondary myeloid celltype
+Our low resolution clustering has captured the major cell types: 0 and 1 appear to be epithelial cells, 2 is mesenchymal, 3 are B, 4 is T cells, 6 is myeloid and 8 is endothelial. But 7 is a secondary B celltype
 
 I like to immediately plot the distribution of samples per celltype to make sure we are getting useful clusters in our data. 
 ```{r}
 se@meta.data %>%
-    count(donor_id, seurat_clusters) %>% 
+    count(sample_id, seurat_clusters) %>% 
     group_by(seurat_clusters) %>%
     mutate(composition = n/sum(n)) %>%
-    ggplot(aes(x = seurat_clusters, y = composition, fill = donor_id)) + 
+    ggplot(aes(x = seurat_clusters, y = composition, fill = sample_id)) + 
         geom_bar(position = 'stack', stat = 'identity') + 
         scale_fill_manual(values = donor_pal)
 ```
 
-So we have a good distribution of samples across our normal celltypes, and we probably got all our RBCs from a single sick patient's bloody nose. In cluster 6, we have cells mostly from sick patients - these are probably some kind of activated cells.
+So we have a good distribution of samples across our normal celltypes, and 3 and 7 seem to disproportionately come from one sample (T036). We can plot a density distribution to show the counts coming from that sample and find that the sample has a lot more data which could introduce more noise.
+
+```{r}
+ggplot(se@meta.data, aes(x=n_counts)) + geom_density() + facet_wrap("~sample_id")
+```
+
+
+```{r}
+se@meta.data %>%
+    count(`inferred state`, seurat_clusters) %>% 
+    group_by(seurat_clusters) %>%
+    mutate(composition = n/sum(n)) %>%
+    ggplot(aes(x = seurat_clusters, y = composition, fill = `inferred state`)) + 
+        geom_bar(position = 'stack', stat = 'identity')
+```
+Here we can see that clusters 3 and 7 have the most control population and the least non inflamed.
 
 We can get the best idea of what's going on there with a differential expression, but let's save that for later.
 
@@ -689,8 +702,7 @@ plot_batch_effect_heatmap <- function(
 
 plot_batch_effect_heatmap(
     se, 
-    metadata_columns_to_include = c('Age', 'sex', "donor_id", "Number of UMI",
-                                    "disease", "Severity"))
+    metadata_columns_to_include = c('Age',  "sample_id", "n_counts", "Diagnosis", "inferred state")) # 'sex', "disease", "Severity"
 
 ```
 
@@ -700,17 +712,17 @@ We don't really have any metadata that are correlating with our PCs. So it seems
 ```{r}
 se <- se %>% 
     RunHarmony(
-        group.by.vars = 'donor_id',
+        group.by.vars = 'sample_id',
         reduction.use = 'pca',
     ) %>%
     FindNeighbors(reduction = 'harmony', k.param =5) %>%
     FindClusters(resolution = 0.05)
 
-se <- RunUMAP(se, reduction = "pca", dims = 1:30, reduction.name = "harmony_umap")
+se <- RunUMAP(se, reduction = "harmony", dims = 1:30, reduction.name = "harmony_umap")
 
 h1_2 <- DimPlot(se,
         reduction = 'harmony',
-        group.by = 'donor_id',
+        group.by = 'sample_id',
         dims = c(1,2)
         ) + 
         scale_color_manual(values = donor_pal) +
@@ -718,20 +730,20 @@ h1_2 <- DimPlot(se,
 
 h1_8 <- DimPlot(se,
         reduction = 'harmony',
-        group.by = 'donor_id',
+        group.by = 'sample_id',
         dims = c(1,8)
         ) + NoLegend() +
         scale_color_manual(values = donor_pal)
 
 pcs1_2 <- DimPlot(se,
         reduction = 'pca',
-        group.by = 'donor_id') + 
+        group.by = 'sample_id') + 
         scale_color_manual(values = donor_pal) +
         NoLegend()
 
 pcs1_8 <- DimPlot(se,
         reduction = 'pca',
-        group.by = 'donor_id',
+        group.by = 'sample_id',
          dims = c(1,8)) + 
         scale_color_manual(values = donor_pal) 
 
@@ -746,8 +758,7 @@ We can do this by plotting again the correlation of metadata covariates
 plot_batch_effect_heatmap(
     se, 
     latent_space = 'harmony',
-    metadata_columns_to_include = c('Age', 'sex', "donor_id", "Number of UMI",
-                                    "disease", "Severity"),
+    metadata_columns_to_include = c('Age',  "sample_id", "n_counts", "Diagnosis", "inferred state"),
     plot_title = "Correlation Heatmap of Metadata and Harmony latent variables")
 ```
 
@@ -756,20 +767,20 @@ I like to immediately plot the distribution of samples per celltype to make sure
 plt1 <- DimPlot(
     se,
     reduction = 'pca_umap',
-    group.by = c('donor_id')) + 
+    group.by = c('sample_id')) + 
     scale_color_manual(values = donor_pal) | DimPlot(
         se,
         reduction = 'pca_umap',
-        group.by = c('Celltype'))
+        group.by = c('category'))
 
 plt2 <- DimPlot(
     se,
     reduction = 'harmony_umap',
-    group.by = c('donor_id')) + 
+    group.by = c('sample_id')) + 
     scale_color_manual(values = donor_pal) | DimPlot(
         se,
         reduction = 'harmony_umap',
-        group.by = c('Celltype'))
+        group.by = c('category'))
 
 plt1 / plt2
 ```
