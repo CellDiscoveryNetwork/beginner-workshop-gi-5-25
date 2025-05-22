@@ -1,5 +1,5 @@
 ---
-title: "7 - Differential Gene Expression & Level 1 Annotation"
+title: "8 - Differential Gene Expression & Level 1 Annotation"
 author: "CDN team"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 format:
@@ -154,14 +154,6 @@ We're going to be working with a dataset from the paper - [Immunophenotyping of 
 se <- readRDS(file = "../data/clustered_se.rds")
 ```
 
-Generate a color palette for our cell types
-
-```{r}
-# https://www.datanovia.com/en/blog/easy-way-to-expand-color-palettes-in-r/
-pal <- paletteMartin
-names(pal) <- sort(unique(se$Celltype))
-```
-
 ## Analysis
 
 The seurat object already comes pre-processed from the previous step! We can go right in to annotate the clusters.
@@ -169,7 +161,7 @@ The seurat object already comes pre-processed from the previous step! We can go 
 Check how the clusters look on the UMAP
 
 ```{r fig.width=12, fig.height=10}
-se$sample_id <- se$`Sample ID`
+se$sample_id <- se$sample_id
 DimPlot(
     se,
     group.by = c(
@@ -288,10 +280,10 @@ We can use [Azimuth](https://azimuth.hubmapconsortium.org/) online app to manual
 To do so we need to save the counts matrix as an RDS file.
 
 ```{r}
-saveRDS(
-    # subsample our data to 20% for a quick example
-    object = se[, sample(colnames(se), .2 * ncol(se))]@assays$RNA$counts,
-    file = "../data/counts.rds")
+# saveRDS(
+#     # subsample our data to 20% for a quick example
+#     object = se[, sample(colnames(se), .2 * ncol(se))]@assays$RNA$counts,
+#     file = "../data/counts.rds")
 ```
 
 #### Reference Mapping
@@ -300,7 +292,8 @@ We are going to download a reference human PBMC data using the `SeuratData` pack
 
 ```{r}
 # SeuratData::AvailableData()
-# SeuratData::InstallData("pbmcsca", force.reinstall = TRUE)
+SeuratData::InstallData("pbmc3k", force.reinstall = TRUE)
+# http://seurat.nygenome.org/src/contrib/pbmcref.SeuratData_1.0.0.tar.gz
 SeuratData::InstalledData()
 ref <- LoadData("pbmcsca")
 ```
@@ -361,13 +354,13 @@ Let's add these predictions to our seurat object
 # colnames(predictions)
 se <- AddMetaData(
     se,
-    metadata = predictions[, c("predicted.id", "prediction.score.max", "prediction.score.Unassigned")])
+    metadata = predictions[, c("predicted.id", "prediction.score.max")])
 ```
 
 Look at the label transfer
 
 ```{r fig.width=12, fig.height=5}
-DimPlot(se, group.by = c("Celltype", "predicted.id"))
+DimPlot(se, group.by = c("annotation_V2", "predicted.id"), label = TRUE) & NoLegend()
 ```
 
 Since we also got a confidence value for each cell we can visualize it
@@ -378,125 +371,213 @@ FeaturePlot(se, features = c("prediction.score.max", "prediction.score.Unassigne
 
 #### Manual Annotation
 
-##### Cluster 0 & 5
+##### Cluster 0
 
 Let's look at genes that are differentially expressed
 
 ```{r fig.height=10, fig.width=15}
+egenes <- c("EPCAM", "CLDN7", "KRT19", "CLDN3", "KRT8", "MUC3A")
 FeaturePlot(
     se,
-    features = c("CD3D", "CD3E", "TRAC", "TRBC2", "CD8B", "CD4"),
+    features = egenes,
     ncol = 3) +
     dim_plt
 
 VlnPlot(
     se,
-    features = c("CD3D", "CD3D", "TRAC", "TRBC2", "CD8B", "CD4"),
+    features = egenes,
     group.by = "RNA_snn_res.0.05") +
     dim_plt
 ```
 
-Clusters 0 & 5 seem to have a lot of expression of T cell related genes so at this level 1 we are going to label them as T cells.
-
-##### Cluster 1, 4 & 6
+##### Cluster 1
 
 Let's look at genes that are differentially expressed
 
 ```{r fig.height=10, fig.width=15}
+tgenes <- c("CD3D", "CD3E", "TRAC", "TRBC2", "CD8B", "CD4")
 FeaturePlot(
     se,
-    features = c("CD14", "FCGR3A", "S100A8", "VCAN", "LYZ"),
+    features = tgenes,
     ncol = 3) +
     dim_plt
 
 VlnPlot(
     se,
-    features = c("CD14", "FCGR3A", "S100A8", "VCAN", "LYZ"),
+    features = tgenes,
     group.by = "RNA_snn_res.0.05") +
     dim_plt
 ```
 
-Cluster 1, 4 & 6 express a lot of monocyte-like genes, at this level 1 we are going to label them as monocytes.
+Clusters 0 look like T cells
 
 ##### Cluster 2
 
 Let's look at genes that are differentially expressed
 
 ```{r fig.height=10, fig.width=15}
+pgenes <- c("MZB1", "CD79A", "XBP1", "IGHA2", "IGHA1", "JCHAIN")
 FeaturePlot(
     se,
-    features = c("MS4A1", "CD79A", "CD79B", "IGHD", "IGHM"),
+    features = pgenes,
     ncol = 3) +
     dim_plt
 
 VlnPlot(
     se,
-    features = c("MS4A1", "CD79A", "CD79B", "IGHD", "IGHM"),
+    features = pgenes,
     group.by = "RNA_snn_res.0.05") +
     dim_plt
 ```
 
-Cluster 2 is expressing B cells genes
+Cluster 2 are Plasma Cells.
 
-##### Cluster 3
+##### Cluster 3 & 9
 
 Let's look at genes that are differentially expressed
 
 ```{r fig.height=10, fig.width=15}
+fgenes <- c("LUM", "DCN", "COL1A2", "COL3A1", "COL6A2", "IGFBP7", "MFAP4")
 FeaturePlot(
     se,
-    features = c("PF4", "GP9", "PPBP"),
-    ncol = 2) +
+    features = fgenes,
+    ncol = 3) +
     dim_plt
 
 VlnPlot(
     se,
-    features = c("PF4", "GP9", "PPBP"),
+    features = fgenes,
     group.by = "RNA_snn_res.0.05") +
     dim_plt
 ```
 
-Cluster 3 is expressing platelet genes
+Cluster 3 are fibroblasts
+
+##### Cluster 4 & 5
+
+Let's look at genes that are differentially expressed
+
+```{r fig.height=10, fig.width=15}
+bgenes <- c("MS4A1", "CD79A", "CD79B", "IGHD", "IGHM")
+FeaturePlot(
+    se,
+    features = bgenes,
+    ncol = 3) +
+    dim_plt
+
+VlnPlot(
+    se,
+    features = bgenes,
+    group.by = "RNA_snn_res.0.05") +
+    dim_plt
+```
+
+Cluster 4 is expressing B cell genes
+
+##### Cluster 6
+
+Let's look at genes that are differentially expressed
+
+```{r fig.height=10, fig.width=15}
+mgenes <- c("CD14", "FCGR3A", "S100A8", "VCAN", "LYZ")
+FeaturePlot(
+    se,
+    features = mgenes,
+    ncol = 3) +
+    dim_plt
+
+VlnPlot(
+    se,
+    features = mgenes,
+    group.by = "RNA_snn_res.0.05") +
+    dim_plt
+```
+
+Cluster 6 look like myeloid cells
 
 ##### Cluster 7
 
 Let's look at genes that are differentially expressed
 
 ```{r fig.height=10, fig.width=15}
+ggenes <- c("KLF4", "TFF1", "SYTL2")
 FeaturePlot(
     se,
-    features = c("HBA1", "HBA2", "HBB", "HBD"),
+    features = ggenes,
     ncol = 3) +
     dim_plt
 
 VlnPlot(
     se,
-    features = c("HBA1", "HBA2", "HBB", "HBD"),
+    features = ggenes,
     group.by = "RNA_snn_res.0.05") +
     dim_plt
 ```
 
-Cluster 7 is expressing hemoglobin genes so they are likely RBC
+Cluster 7 look like Goblet cells
 
 ##### Cluster 8
 
 Let's look at genes that are differentially expressed
 
 ```{r fig.height=10, fig.width=15}
+vgenes <- c("RAMP2", "PLVAP", "PECAM1", "VWF", "CD34", "CAV1")
 FeaturePlot(
     se,
-    features = c("SHD", "SHC", "LILRA4", "CLEC4C", "IL3RA", "IRF4"),
+    features = vgenes,
     ncol = 3) +
     dim_plt
 
 VlnPlot(
     se,
-    features = c("SHD", "SHC", "LILRA4", "CLEC4C", "IL3RA", "IRF4"),
+    features = vgenes,
     group.by = "RNA_snn_res.0.05") +
     dim_plt
 ```
 
-Cluster 8 is expressing genes predominantly expressed by pDCs.
+Cluster 8 is expressing vascular endothelial cell markers
+
+##### Cluster 10
+
+Let's look at genes that are differentially expressed
+
+```{r fig.height=10, fig.width=15}
+lgenes <- c("CCL21", "LYVE1", "PROX1", "CLDN5")
+FeaturePlot(
+    se,
+    features = lgenes,
+    ncol = 3) +
+    dim_plt
+
+VlnPlot(
+    se,
+    features = lgenes,
+    group.by = "RNA_snn_res.0.05") +
+    dim_plt
+```
+
+Cluster 10 is expressing lymphatic endothelial cell markers
+
+##### Cluster 11
+
+Let's look at genes that are differentially expressed
+
+```{r fig.height=10, fig.width=15}
+pegenes <- c("RGS5", "NOTCH3", "SOD3", "GJA4", "MGP", "ACTA2")
+FeaturePlot(
+    se,
+    features = pegenes,
+    ncol = 3) +
+    dim_plt
+
+VlnPlot(
+    se,
+    features = pegenes,
+    group.by = "RNA_snn_res.0.05") +
+    dim_plt
+```
+
+Cluster 11 is expressing pericyte markers
 
 ## Annotate
 
@@ -506,15 +587,18 @@ According to the markers observed we can make a first general annotation
 se@meta.data <- se@meta.data %>%
   dplyr::mutate(
     annotation_lvl1 = dplyr::case_when(
-      RNA_snn_res.0.05 == 0 ~ "T cells",
-      RNA_snn_res.0.05 == 1 ~ "Monocytes",
-      RNA_snn_res.0.05 == 2 ~ "B cells",
-      RNA_snn_res.0.05 == 3 ~ "Platelets",
-      RNA_snn_res.0.05 == 4 ~ "Monocytes",
-      RNA_snn_res.0.05 == 5 ~ "T cells",
-      RNA_snn_res.0.05 == 6 ~ "Monocytes",
-      RNA_snn_res.0.05 == 7 ~ "RBC",
-      RNA_snn_res.0.05 == 8 ~ "pDCs"
+      RNA_snn_res.0.05 == 0 ~ "Epithelial",
+      RNA_snn_res.0.05 == 1 ~ "T cells",
+      RNA_snn_res.0.05 == 2 ~ "Plasma Cells",
+      RNA_snn_res.0.05 == 3 ~ "Fibroblasts",
+      RNA_snn_res.0.05 == 4 ~ "B cells",
+      RNA_snn_res.0.05 == 5 ~ "B cells",
+      RNA_snn_res.0.05 == 6 ~ "Myeloid cells",
+      RNA_snn_res.0.05 == 7 ~ "Goblet cells",
+      RNA_snn_res.0.05 == 8 ~ "Vascular Endothelial cells",
+      RNA_snn_res.0.05 == 9 ~ "Fibroblasts",
+      RNA_snn_res.0.05 == 10 ~ "Lymphatic Endothelial cells",
+      RNA_snn_res.0.05 == 11 ~ "Pericytes"
       )
   )
 
@@ -525,29 +609,41 @@ DimPlot(se, group.by = "annotation_lvl1")
 
 We can visualize this as a dotplot
 
-```{r fig.width=9, fig.height=3}
-order <- c("T cells", "Monocytes", "B cells", "Platelets", "RBC", "pDCs")
+```{r fig.width=15, fig.height=5}
+order <- unique(c(
+    "T cells", "Myeloid cells", "B cells", "Plasma Cells",
+    "Epithelial", "Goblet cells", "Fibroblasts",
+    "Pericytes", "Vascular Endothelial cells", "Lymphatic Endothelial cells"
+    ))
 
 se$annotation_lvl1_ord <- factor(
   x = se$annotation_lvl1,
-  levels = order)
+  levels = unique(order))
 
 ## Genes for DOTPLOT
 dplot_genes <- c(
     # T cell genes
-    "CD3D", "CD3E", "TRAC", "TRBC1", "TRBC2", "CD8A", "CD8B", "CD4",
+    tgenes,
     # Monocytes
-    "CD14", "FCGR3A", "S100A8", "VCAN", "LYZ", "MS4A6A",
+    mgenes,
     # B cells
-    "MS4A1", "CD79A", "CD79B", "IGHD", "IGHM",
-    # Platelets
-    "PF4", "GP9", "PPBP",
-    # RBC
-    "HBA1", "HBA2", "HBB", "HBD",
-    #pDCs
-    "LILRA4", "CLEC4C", "IL3RA", "IRF4"
+    bgenes,
+    # Plasma Cells
+    pgenes,
+    # Epithelial
+    egenes,
+    # Goblet cells
+    ggenes,
+    # Fibroblasts
+    fgenes,
+    # Pericytes
+    pegenes,
+    # Vascular Endothelial cells
+    vgenes,
+    # Lymphatic Endothelial cells
+    lgenes
   )
-
+dplot_genes <- unique(dplot_genes)
 Seurat::DotPlot(
   object = se,
   features = dplot_genes,
@@ -573,10 +669,20 @@ Or with `pheatmap`
 
 ```{r fig.width=15, fig.height=8}
 # Cell types in the order the gdotplot genes are set
-ct_vec <- c("T cells", "Monocytes", "B cells", "Platelets", "RBC", "pDCs")
+ct_vec <- order
+lvl1_pal <- c(
+  "T cells" = "#228B22",                      # Forest Green
+  "Myeloid cells" = "#DAA520",                # Goldenrod
+  "B cells" = "#4682B4",                      # Steel Blue
+  "Plasma Cells" = "#6A5ACD",                 # Slate Blue
+  "Epithelial" = "#FF8C00",                   # Dark Orange
+  "Goblet cells" = "#DA70D6",                 # Orchid
+  "Fibroblasts" = "#8B4513",                  # Saddle Brown
+  "Pericytes" = "#3CB371",                    # Medium Sea Green
+  "Vascular Endothelial cells" = "#DC143C",   # Crimson
+  "Lymphatic Endothelial cells" = "#008080"   # Teal
+)
 
-lvl1_pal <- c("purple", "orange", "forestgreen", "lightblue", "darkred", "black")
-names(lvl1_pal) <- ct_vec
 # Subset to 30% of the dataset
 se_30 <- se[, sample(colnames(se), 0.5 * ncol(se))]
 
@@ -593,10 +699,10 @@ hm_ls <- lapply(ct_vec, function(i) {
     
     # Add the score of the signature as annotation in the heatmap
     colAnn <- ComplexHeatmap::HeatmapAnnotation(
-        df = se_sub@meta.data[, c("Celltype", "annotation_lvl1"), drop = FALSE],
+        df = se_sub@meta.data[, c("annotation_V2", "annotation_lvl1"), drop = FALSE],
         # name = "Celltype",
         which = 'column',
-        col = list("Celltype" = pal, "annotation_lvl1" = lvl1_pal),
+        col = list("annotation_lvl1" = lvl1_pal),
         show_annotation_name = FALSE)
     
     # Visualize the Heatmap with the genes and signature 
@@ -614,7 +720,8 @@ hm_ls <- lapply(ct_vec, function(i) {
 })
 
 # Return ComplexHeatmap
-hm_ls[[1]] + hm_ls[[2]] + hm_ls[[3]] + hm_ls[[4]] + hm_ls[[5]] + hm_ls[[6]]
+(plt1 <- (hm_ls[[1]] + hm_ls[[2]] + hm_ls[[3]] + hm_ls[[4]] + hm_ls[[5]]))
+(plt2 <- (hm_ls[[6]] + hm_ls[[7]] + hm_ls[[8]] + hm_ls[[9]] + hm_ls[[10]]))
 ```
 
 ### Annotation agreement
@@ -624,7 +731,7 @@ Lastly let's see if our Manual annotation agrees with the reference annotation:
 ```{r fig.width=12, fig.height=5}
 DimPlot(
     se,
-    group.by = c("annotation_lvl1", "predicted.id", "Celltype"),
+    group.by = c("annotation_lvl1", "predicted.id", "annotation_V2"),
     ncol = 2)
 ```
 
@@ -647,8 +754,8 @@ Check the overlap between manual and the author provided annotation:
 ```{r}
 se@meta.data %>%
     # Count the instances each combination of annotations happen
-    dplyr::count(annotation_lvl1, Celltype) %>%
-    ggplot(aes(x = annotation_lvl1, y = Celltype, fill = n, color = n, label = n)) +
+    dplyr::count(annotation_lvl1, annotation_V2) %>%
+    ggplot(aes(x = annotation_lvl1, y = annotation_V2, fill = n, color = n, label = n)) +
     geom_tile(color = "lightgrey") +
     geom_text(color = "lightgrey") +
     scale_fill_viridis_c() +
@@ -660,13 +767,13 @@ Now with an alluvial plot
 
 ```{r fig.width=15, fig.height=9}
 se@meta.data %>%
-    dplyr::count(annotation_lvl1, predicted.id, Celltype) %>% 
+    dplyr::count(annotation_lvl1, predicted.id, annotation_V2) %>% 
 
     ggplot(
-        aes(axis1 = annotation_lvl1, axis2 = predicted.id, axis3 = Celltype,
+        aes(axis1 = annotation_lvl1, axis2 = predicted.id, axis3 = annotation_V2,
             y = n)) +
-    scale_x_discrete(limits = c("annotation_lvl1", "predicted.id", "Celltype"), expand = c(.2, .05)) +
-    geom_alluvium(aes(fill = Celltype), alpha = 0.9, aes.bind = TRUE) +
+    scale_x_discrete(limits = c("annotation_lvl1", "predicted.id", "annotation_V2"), expand = c(.2, .05)) +
+    geom_alluvium(aes(fill = annotation_lvl1), alpha = 0.9, aes.bind = TRUE) +
     geom_stratum() +
     geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
     labs(
@@ -677,7 +784,7 @@ se@meta.data %>%
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         axis.line = element_line(colour = "darkgrey")) +
-    scale_fill_manual(values = pal)
+    scale_fill_manual(values = lvl1_pal)
 ```
 
 ## Save objects

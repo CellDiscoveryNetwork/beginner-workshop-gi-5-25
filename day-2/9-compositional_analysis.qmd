@@ -1,0 +1,696 @@
+---
+title: "4 - Compositional Analysis"
+author: "CDN team"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+format:
+  html:
+    toc: true
+    toc_float: true
+    toc-location: left
+    toc-depth: 4
+    html-math-method: katex
+    self-contained-math: true
+    embed-resources: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+
+# Define a custom hook for code chunks
+# knit_hooks$set(chunk_timing = function(before, options, envir) {
+#   if (before) {
+#     # Before chunk execution, record start time in the environment
+#     envir$chunk_start_time <- Sys.time()
+#   } else {
+#     # After chunk execution, calculate and print execution time
+#     execution_time <- Sys.time() - envir$chunk_start_time
+#     print("Execution time: ", execution_time)
+#   }
+# })
+
+# # set timing hook to execute for each cell
+# opts_chunk$set(chunk_timing = TRUE)
+
+# set figure centering hook for each cell
+knitr::opts_chunk$set(echo = TRUE, out.width = "100%", fig.align='center', 
+                      message = FALSE, warning = FALSE, cache = FALSE)
+options(width = 1200)
+```
+
+## Introduction
+
+In this notebook we will study which cell types compose different samples in single-cell data. We will do this using a subset of statistics called compositional data analysis (or CoDA for short), because single-cell experiments are small samples of a larger tissue so the cells we obtain represent only the proportions of each cell type in the tissue, not their true abundance. 
+
+CoDA relativizes proportions by comparing them to a stable population, comparing them to each other, or to a mean across samples, all resulting in a table of relative abundances of cell types per sample. This sample x species matrix is a natural foundation for conducting case-control analysis, as we have a single vector of variables per sample. Here, we can scrutinize variances between conditions and between samples.
+
+With compositions, we can be as granular as our data allows us. Some studies [@zheng_concerted_2023][@dann_differential_2022] have suggested that higher-resolution sub-clusters are where biological differences are most prominent. Compositions can be normalized within cell type or subtype so case-control analysis can be performed at this level, with multiple resolutions using advanced methods, or at a more general low-resolution clustering level. I've written a tool for automated sub-clustering and sub-cluster annotation, [ARBOL](https://github.com/jo-m-lab/ARBOL), which is available in R and python. 
+
+For teaching purposes, here we will use the cell type annotations the authors provide and include all celltypes in our compositional analysis.
+
+### Useful Resources
+
+* John Aitchison's Compositional Data Analysis [@aitchison_statistical_1982]
+* scCODA, a python + scanpy package for ALR compositional analysis [@buttner_sccoda_2021]
+* Cacoa, an R package for case-control analysis that uses ILR 
+* [compositions](https://cran.r-project.org/web/packages/compositions/index.html), an R package for CoDA 
+* A paper describing the compositionality problem in terms of microbiome studies [@morton_establishing_2019]
+* sccomp - an R method for single-cell compositional comparisons [https://github.com/stemangiola/sccomp](https://github.com/stemangiola/sccomp)
+
+
+### Key Takeaways
+
+* Compositions provide a good foundation for comparing individual samples
+* The compositional nature of scRNAseq means only conclusions about relative values can be made, and overall cell density can bias results
+* Compositional transforms allow quantitative assessment of scRNA relative abundances
+
+## Libraries
+
+### Installation
+
+```{r}
+if (!requireNamespace("tidyverse", quietly = TRUE))
+    install.packages('tidyverse')
+if (!requireNamespace("Seurat", quietly = TRUE))
+    install.packages('Seurat')
+if (!requireNamespace("compositions", quietly = TRUE))
+    install.packages('compositions')
+if (!requireNamespace("colorBlindness", quietly = TRUE))
+    install.packages('colorBlindness')
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+if (!requireNamespace("EnhancedVolcano", quietly = TRUE))
+    BiocManager::install("EnhancedVolcano")
+if (!requireNamespace("ComplexHeatmap", quietly = TRUE))
+    BiocManager::install("ComplexHeatmap")
+if (!requireNamespace("scales", quietly = TRUE))
+    install.packages('scales')
+if (!requireNamespace("viridis", quietly = TRUE))
+    install.packages('viridis')
+if (!requireNamespace("DT", quietly = TRUE))
+    install.packages('DT')
+if (!requireNamespace("reshape2", quietly = TRUE))
+    install.packages('reshape2')
+if (!requireNamespace("ggrepel", quietly = TRUE))
+    install.packages("ggrepel")
+if (!requireNamespace("sccomp", quietly = TRUE))
+devtools::install_github("stemangiola/sccomp")
+```
+
+### Load Libraries
+```{r}
+library(colorBlindness)
+library(tidyverse)
+library(EnhancedVolcano)
+library(viridis)
+library(scales)
+library(DT)
+library(Seurat)
+library(compositions)
+library(reshape2)
+library(ComplexHeatmap)
+library(ggrepel)
+library(sccomp)
+```
+
+## Load data
+```{r}
+se <- readRDS("../data/se_lvl1.rds")
+```
+
+### Other setup
+Generate a color palette for plotting
+```{r}
+donor_pal <- c(
+    "#66C2A4", "#41AE76", "#238B45", "#006D2C",
+    "#41B6C4", "#1D91C0", "#225EA8", "#253494",
+    "#FD8D3C", "#FC4E2A", "#E31A1C", "#BD0026",
+    "#ad393b", "#800000", "#800050")
+
+names(donor_pal) <- c(
+    "T024", "T036", "T44", "T057", "T110", "T160", "T161", "T182",
+    "T017", "T019", "T176", "T189", "T197", "T203", "T202"
+)
+
+pal <- c(
+    # Epithelial lineage
+    "crypt" = "#FFB347",
+    "TA" = "#FFA500",
+    "early enterocyte" = "#FFD580",
+    "enterocyte" = "#FF8C00",
+    "enteroendocrine" = "#FFC04C",
+    "BEST4 enterocyte" = "#FF9900",
+    "Goblet cell" = "#DA70D6",
+    "IL2RG+ enterocyte (M cell)" = "#E9967A",
+    "Paneth cell" = "#FF6347",
+    "Tuft" = "#F08080",
+    
+    # Fibroblast lineage
+    "S1 fibroblasts" = "#8B4513",
+    "S2 fibroblasts" = "#A0522D",
+    "S4 fibroblasts" = "#CD853F",
+    "myofibroblast" = "#D2B48C",
+    
+    # Stromal/glial/perivascular
+    "Glial cell" = "#708090",
+    "pericyte" = "#3CB371",
+    
+    # Endothelial cells
+    "Arterial endothelial cell" = "#DC143C",
+    "Venous endothelial cell" = "#B22222",
+    "Lymphatic endothelial cell" = "#008080",
+    
+    # B lineage
+    "Memory B cell" = "#4682B4",
+    "B cell" = "#5A9BD4",
+    "FCER2 B cell" = "#6495ED",
+    "Activated B cell" = "#1E90FF",
+    "Cycling B cell" = "#87CEFA",
+    
+    # Plasma cells
+    "IgA plasma cell" = "#6A5ACD",
+    "IgG plasma cell" = "#7B68EE",
+    "Cycling plasma cell" = "#8470FF",
+    
+    # T lineage
+    "CD8 T cell" = "#228B22",
+    "CD4 T cell" = "#32CD32",
+    "Activated T" = "#66CDAA",
+    "Treg" = "#2E8B57",
+    "Tfh" = "#20B2AA",
+    "gd T/NK cell" = "#556B2F",
+    
+    # Myeloid lineage
+    "Monocyte" = "#DAA520",
+    "Cycling myeloid cells" = "#F0E68C",
+    "Macrophage" = "#B8860B",
+    "cDC1" = "#CD5C5C",
+    "cDC2" = "#F4A460",
+    "pDC" = "#D2691E",
+    "activated DC" = "#DEB887",
+    
+    # Mast cells
+    "mast cells" = "#9932CC"
+)
+
+```
+
+```{r}
+# Create a function to perform Wilcoxon rank-sum tests and return p-values
+perform_wilcox_test <- function(data, group_col, group1, group2, species_col) {
+  group1_data <- data[data[[group_col]] == group1, species_col]
+  group2_data <- data[data[[group_col]] == group2, species_col]
+  
+  test_result <- wilcox.test(group1_data, group2_data)
+  return(data.frame(
+      p.val = test_result$p.value,
+      statistic = test_result$statistic,
+      species = species_col, 
+      test = paste(group1,'vs',group2)))
+}
+```
+
+## Generate a sample x celltype composition table
+
+In papers we often see percentages of clusters per sample or of subclusters in a larger celltype. These are done using stacked bar plots as follows.
+
+```{r, fig.width=12, fig.height=8}
+celltypePercentagesDF <- se@meta.data %>% 
+    count(sample_id, annotation_V2, Diagnosis) %>% 
+    group_by(sample_id, Diagnosis) %>% 
+    reframe(annotation_V2, celltype_n = n, total_n_cells = sum(n)) %>% 
+    mutate(pct_celltype = celltype_n / total_n_cells)
+
+datatable(celltypePercentagesDF)
+
+celltypePercentagesDF %>% 
+    ggplot(aes(x = sample_id, y = pct_celltype, fill = annotation_V2), 
+           color = 'white') + 
+    geom_bar(position='stack', stat='identity') + 
+    scale_fill_manual(values = pal) + 
+    ggtitle('Composition of each sample by celltype') +
+    theme_linedraw(base_size = 20) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+```
+
+## Understanding Compositional Data Analysis
+
+![Compositional abundances are relative to each other and to total number of cells](../img/compositions1.png)
+
+![Conclusions about absolute abundance cannot be made with compositional data](../img/compositions2.png)
+
+### Comparing compositions with Wilcoxon tests
+
+For simplicity all comparisons in this notebook will be made between annotation_V2 and normal samples, with annotation_V2 in the positive direction.
+
+Compositions are often compared using rank sum tests, which Morton et al [@morton_establishing_2019] show is a great way to avoid the compositionality problem. It avoids the problem by only making conclusions about relative abundance rather than absolute abundance, because a cell type's rank is dependent on the other cell types. The most commonly used rank test is the Wilcoxon test (aka Mann-Whitney U test), the default test Seurat uses for comparisons of genes across clusters with FindAllMarkers. 
+
+If we use the Wilcoxon test here in a comparison of compositions across samples annotation_V2 vs. Normal, we will see that the result depends on proper normalization of the data.
+
+```{r, fig.width=12, fig.height=9}
+rawTb <- celltypePercentagesDF %>%
+    mutate(sample = glue::glue("{sample_id}-{Diagnosis}")) %>%
+    dplyr::select(sample, group=Diagnosis, annotation_V2, celltype_n) %>%
+    pivot_wider(names_from=annotation_V2, values_from = celltype_n, values_fill=0) %>%
+    separate(sample, sep = "-", into=c('sample','group'), remove=FALSE)
+
+# Create a long dataframe of raw values for comparisons
+raw_long <- rawTb %>%
+  pivot_longer(-c(group, sample), names_to="species", values_to="counts") %>%
+  mutate(transform = "Raw Counts")
+
+species_col_names <- colnames(rawTb)[3:ncol(rawTb)]
+
+wilcoxon_raw <- lapply(species_col_names, function(species) {
+    print(species)
+    perform_wilcox_test(
+        data = data.frame(rawTb, check.names = FALSE),
+        group_col = "group",
+        group1 = "Normal control",
+        group2 = 'Crohn Disease',
+        species_col = species)
+})
+    
+
+wilcoxon_raw <- wilcoxon_raw %>%
+    bind_rows %>% 
+    data.frame %>% 
+    mutate(transform = "Raw")
+```
+
+```{r}
+pctTb <- celltypePercentagesDF %>%
+    mutate(sample = glue::glue("{sample_id}-{Diagnosis}")) %>%
+    dplyr::select(sample, group=Diagnosis, annotation_V2, pct_celltype) %>%
+    pivot_wider(names_from=annotation_V2, values_from = pct_celltype, values_fill=0) %>%
+    separate(sample, sep = "-", into=c('sample','group'), remove=FALSE) # reorganize dataframe for wilcoxon tests
+
+# Create a long dataframe of percent values for comparisons
+pct_long <- pctTb %>%
+  pivot_longer(-c(group, sample), names_to="species", values_to="counts") %>%
+  mutate(transform = "Percentages")
+
+wilcoxon_pct <- lapply(species_col_names, function(species) 
+                        perform_wilcox_test(data.frame(pctTb, check.names = FALSE), 
+                                            group_col = "group", 
+                                            group1 = 'Normal control', 
+                                            group2 = 'Crohn Disease', 
+                                            species_col = species)) 
+
+wilcoxon_pct <- wilcoxon_pct %>% bind_rows %>% data.frame %>% mutate(transform = "Percent")
+```
+
+Combine raw and pct dataframes and visualize
+```{r fig.height=6, fig.width=18}
+combined_data <- bind_rows(raw_long, pct_long)
+
+combined_data %>%
+    filter(group %in% c('Normal control','Crohn Disease')) %>%
+    ggplot(aes(x = species, y=counts, fill = group)) +
+    geom_boxplot() +
+    facet_wrap(~ transform, scales = "free_y") +
+    labs(title = "Comparison of Species Counts per Group",
+         x = "Species",
+         y = "Counts / Percentages") +
+    theme_minimal(base_size = 20) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+          legend.title = element_blank()) +
+    scale_fill_manual(values = unname(pal[c(1,4)]))
+```
+
+
+
+```{r, fig.height=9, fig.width=18}
+wilcoxon_comparisons <- bind_rows(wilcoxon_raw,wilcoxon_pct)
+
+ggplot(wilcoxon_comparisons, aes(x = reorder(species, p.val), y = p.val, color = p.val < 0.05)) +
+  geom_point() + # Use geom_bar() for bar plots
+  scale_color_manual(values = c("TRUE" = "red", "FALSE" = "blue"), name = "p-val < 0.05") +
+  facet_wrap(~ transform, scales = "free_x") +
+  labs(x = "Species", title = "Comparison of P-Values Across Species and Transformations") +
+  theme_minimal(base_size = 20) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        legend.position = "top") +
+  guides(fill = guide_legend(title = "P-value < 0.05"))
+
+```
+
+### Compositional transforms
+
+The compositions package provides compositional transforms that allow quantitative comparisons of compositional data. In the most popular package for compositional analysis in scRNA, scCODA, the additive-log-ratio is used, where compositions are transformed to log-ratios of the cluster with the least dispersion that is present across 95% of all samples. 
+
+$$
+\text{ALR}(x_i) = \log\left(\frac{x_i}{x_D}\right)
+$$
+
+where:
+
+- $\log$ denotes the natural logarithm,
+- $x_i$ is the value of component $i$ in the composition,
+- $x_D$ is the chosen reference component from the compositional dataset.
+
+$$
+\text{CLR}(x_i) = \log\left(\frac{x_i}{g(x)}\right)
+$$
+
+where:
+
+- $\log$ denotes the natural logarithm,
+- $x_i$ is the value of component $i$ in the composition,
+- $g(x)$ is the geometric mean of all components in the composition, calculated as $g(x) = \left(\prod_{i=1}^{D} x_i\right)^{\frac{1}{D}}$, with $D$ being the total number of components in the composition. $\prod_{}$ means multiply each $x_i$, so you can think of it as an extension of the pythagorean theorem to any $n$ components
+
+The CLR is very easy to use in practice because it does not require a reference. In datasets with very noisy cell subtypes or very different samples, it can be better than the ALR, which can fail when there isn't a good reference cluster. For this notebook, we can calculate the ALR in a similar way to what scCODA (the first CODA package built into scanpy) does by choosing the reference based on which cluster has minimal dispersion and at least 95% presence across samples
+
+```{r, fig.width = 12, fig.height = 12}
+compTb <- pctTb
+
+clrTb <- compositions::clr(compTb[,-c(1,2)]) %>% data.frame
+colnames(clrTb) <- species_col_names
+clrTb$group <- compTb$group 
+clrTb$sample <- compTb$sample
+
+# Create a long dataframe of raw values for comparisons
+clr_long <- clrTb %>% 
+  pivot_longer(-c(group, sample), names_to = "species", values_to = "counts") %>%
+  mutate(transform = "CLR")
+
+wilcoxon_clr <- lapply(species_col_names, function(species) 
+                        perform_wilcox_test(data.frame(clrTb, check.names = FALSE), 
+                                            group_col = "group", 
+                                            group1 = 'Normal control', 
+                                            group2 = 'Crohn Disease', 
+                                            species_col = species))
+
+wilcoxon_clr <- wilcoxon_clr %>% bind_rows %>% data.frame %>% mutate(transform = "CLR")
+
+presence_threshold <- 0.95
+presence <- apply(compTb > 0, 2, function(x) mean(x)) > presence_threshold
+# make sure group column isn't included
+presence[1] <- FALSE
+presence[2] <- FALSE
+
+iqr_values <- apply(compTb[, presence], 2, IQR)
+denominator_index <- which.min(iqr_values)
+denominator_name <- names(iqr_values[denominator_index])
+```
+
+Compute ALR transformations
+```{r}
+alrTb <- compositions::alr(rawTb[,-c(1, 2)] + 1, # apply a tiny pseudocount to avoid logarithmizing a 0
+                           ivar = denominator_name) %>% #ivar is the invariant variable
+         data.frame
+
+alr_col_names <- species_col_names[species_col_names!=denominator_name]
+colnames(alrTb) <- alr_col_names
+alrTb$group <- compTb$group 
+alrTb$sample <- compTb$sample
+
+alr_long <- alrTb %>% 
+  pivot_longer(-c(group, sample), names_to="species", values_to="counts") %>%
+  mutate(transform = "ALR")
+```
+
+Visualize transformations
+```{r fig.height=12, fig.width=20}
+combined_data <- bind_rows(combined_data, clr_long, alr_long)
+
+ggplot(combined_data %>% filter(group %in% c('Normal control','Crohn Disease')), 
+  aes(x = species, y=counts, fill = group)) +
+  geom_boxplot() +
+  labs(title = "Comparison of Species Counts per Group",
+       x = "Species",
+       y = "values") +
+  theme_minimal(base_size = 20) +
+  theme(axis.text.x = element_text(angle=90, hjust=1, vjust = 0.5),
+        legend.title = element_blank()) +
+  scale_fill_manual(values = unname(pal[c(1,4)])) +
+  facet_wrap(~ transform, scales = "free_y")
+```
+
+Wilcoxon test for ALR composition
+```{r}
+wilcoxon_alr <- lapply(alr_col_names, function(species) 
+                        perform_wilcox_test(data.frame(pctTb, check.names = FALSE), 
+                        group_col = "group", 
+                        group1 = 'Normal control', 
+                        group2 = 'Crohn Disease', 
+                        species_col = species))
+
+wilcoxon_alr <- wilcoxon_alr %>% bind_rows %>% data.frame %>% mutate(transform = "ALR")
+
+wilcoxon_comparisons <- bind_rows(wilcoxon_comparisons,wilcoxon_clr,wilcoxon_alr)
+```
+
+
+```{r, fig.width=18, fig.height=18}
+ggplot(wilcoxon_comparisons, aes(x = reorder(species, p.val), y = p.val, color = p.val < 0.05)) +
+  geom_point(size = 3) + 
+  scale_color_manual(values = c("TRUE" = "red", "FALSE" = "blue"), name = "p-val < 0.05") +
+  facet_wrap(~ transform, scales = "free_x") +
+  labs(x = "Species", title = "Comparison of P-Values Across Species and Transformations") +
+  theme_minimal(base_size = 20) +
+  theme(
+      axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+      legend.position = "top") +
+  guides(fill = guide_legend(title = "P-value < 0.05"))
+
+```
+
+We can see that calculating rank sum differences across samples can produce a lot of false positives if we don't normalize our data properly. But even with mere normalization to overall cell number, the Wilcoxon shows similar results to ALR. This is because the ranks of cell population proportions do not change much with normalization. If we used a Bayesian or parametric test, we would find more false positives with the percentages than with the compositional transforms. 
+
+The "best practice" method that has been shown to be successful for compositional analysis in microbiome [@noauthor_anova-like_nodate] and single-cell data [@mangiola_sccomp_2023] is composition-transform paired with binomial distribution modeling ANOVA tests. sccomp is available on github
+
+### Estimating a size effect in compositional data
+
+We can see that calculating rank sum differences across samples can produce a lot of false positives if we don't normalize our data properly. But even with mere normalization to overall cell number, the Wilcoxon shows similar results to ALR. This is because the ranks of cell population proportions do not change much with normalization. If we used a Bayesian or parametric test, we would find more false positives with the percentages than with the compositional transforms. 
+
+The "best practice" method that has been shown to be successful for compositional analysis in microbiome [@noauthor_anova-like_nodate] and single-cell data [@mangiola_sccomp_2023] is composition-transform paired with binomial distribution modeling ANOVA tests. sccomp is available on github
+
+```{r, fig.width = 16, fig.height = 12}
+
+# se$sample <- se$sample_id %>% str_replace_all(' ','')
+# 
+# se$disease <- se$sample_id %>% str_replace_all("\\ .*","")
+
+sccomp_est <- subset(se[, se$Diagnosis %in% c('Normal control','Crohn Disease')]) %>%
+				  sccomp_estimate( 
+					    formula_composition = ~ 0 + Diagnosis, 
+                        formula_variability = ~ 0 + Diagnosis,
+					    .sample = sample_id,
+					    .cell_group = annotation_V2, 
+					    bimodal_mean_variability_association = TRUE,
+					    cores = 4
+				  )
+
+# Run post-model processing
+sccomp_res <- sccomp_est %>%
+				  sccomp_remove_outliers() %>%
+				  sccomp_test(contrasts = "`DiagnosisNormal control` - `DiagnosisCrohn Disease`",
+				  test_composition_above_logit_fold_change = 0.2)
+```
+
+The plotting methods don't work well in the sccomp package. I recommend using the data to make plots directly. A familiar plot for differential tests is the volcano plot. 
+
+```{r, fig.height=10, fig.width=12}
+EnhancedVolcano(sccomp_res, 
+                x = "c_effect", 
+                y = "c_FDR", 
+                lab = sccomp_res$annotation_V2, 
+                pCutoff = 0.05, 
+                title = "sccomp differential composition annotation_V2 vs. Normal", 
+                subtitle = "p-val is FDR. FDR cutoff = 0.05; annotation_V2 positive, Normal negative")
+```
+
+In sccomp, a differential composition "c" and differential variability "v" are both calculated between groups. We can plot each of these separately as well
+
+```{r,fig.height=10,fig.width=8}
+
+sccomp_res <- sccomp_res %>%
+  mutate(signif = ifelse(c_FDR < 0.05, "FDR < 0.05", "FDR >= 0.05")) %>% arrange(c_effect)
+
+ggplot(sccomp_res, aes(y = factor(annotation_V2,levels=annotation_V2), x = c_effect)) +
+  geom_segment(aes(y = annotation_V2, 
+                   yend = annotation_V2, 
+                   x = c_lower, 
+                   xend = c_upper, 
+                   color = signif), 
+                   size = 1) +
+  geom_point(size = 3) + # Add point at c_effect
+  scale_color_manual(values = c("FDR < 0.05" = "red3", "FDR >= 0.05" = "black")) +
+  theme_minimal(base_size = 16) + 
+  labs(title = "Composition test intervals with FDR",
+       x = "Log-fold-change",
+       y = "annotation_V2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank()) # Improve x-axis labels readability
+
+sccomp_res <- sccomp_res %>%
+  mutate(signif = ifelse(v_FDR < 0.05, "FDR < 0.05", "FDR >= 0.05")) %>% arrange(v_effect)
+
+ggplot(sccomp_res, aes(y = factor(annotation_V2,levels=annotation_V2), x = v_effect)) +
+  geom_segment(aes(y = annotation_V2, 
+                   yend = annotation_V2, 
+                   x = v_lower, 
+                   xend = v_upper, 
+                   color = signif), 
+                   size = 1) +
+  geom_point(size = 3) + # Add point at c_effect
+  scale_color_manual(values = c("FDR < 0.05" = "red3", "FDR >= 0.05" = "black")) +
+  theme_minimal(base_size = 16) + 
+  labs(title = "Variability test intervals with FDR",
+       x = "Difference in Variance",
+       y = "annotation_V2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank()) # Improve x-axis labels readability
+```
+
+When there are many cell states in a dataset, for example in a large dataset, it can be nice to make a volcano plot of results for interpretability, so here we include code for creating a nice looking one based on sccomp results
+
+
+## Comparing samples with compositions
+
+### PCA
+```{r, fig.height=14, fig.width=12}
+comp_ls <- list("alr" = alrTb, "clr" = clrTb, "raw" = rawTb, "pct" = pctTb)
+
+# Run PCA on each transformation
+pca_ls <- lapply(names(comp_ls), function(i) {
+    print(i)
+    tmp <- comp_ls[[i]]
+    
+    PCA <- tmp[-which(colnames(tmp) %in% c("sample", "group"))] %>%
+        prcomp()
+    })
+
+names(pca_ls) <- names(comp_ls)
+
+# Extract data of interest from each transformation
+pcaDF <- lapply(names(pca_ls), function(i) {
+    # Return dataframe
+                data.frame(
+                    pca_ls[[i]]$x,
+                    sample_id = comp_ls[[i]]$sample,
+                    transform = i)
+                }) %>% 
+    bind_rows()
+# add total number of cells per sample to the PCA for illustration
+total_cells <- se@meta.data %>%
+    count(sample_id, Diagnosis) %>%
+    rename(total_cells = n, sample_id=sample_id)
+
+pcaDF <- pcaDF %>% left_join(total_cells)
+
+ggplot(pcaDF, aes(x = PC1, y = PC2, color = Diagnosis, label = sample_id)) +
+  geom_point(size=4) +
+  geom_text_repel() +
+  facet_wrap(~ transform, scales = "free") +
+  labs(title = "PCA Across Transformations") +
+  theme_linedraw(base_size = 20) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(title = "P-value < 0.05")) +
+  scale_color_manual(values = c("red", "green"))
+
+ggplot(pcaDF, aes(x = PC1, y = PC2, color = total_cells, label = sample_id)) +
+  geom_point(size=4) +
+  geom_text_repel() +
+  facet_wrap(~ transform, scales = "free") +
+  labs(title = "PCA colored by total cell number") +
+  theme_linedraw(base_size = 20) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.text = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom") +
+  scale_color_gradient(low = 'turquoise', high = 'royalblue')
+```
+
+```{r, fig.height=18, fig.width=20}
+loadingsDF <- lapply(names(pca_ls), function(i) {
+                    data.frame(
+                        pca_ls[[i]]$rotation,
+                        transform = i)
+                    }) %>%
+    bind_rows() %>%
+    rownames_to_column('species') %>%
+    group_by(transform) %>%
+    arrange(PC1)
+
+
+loadingsDF %>%
+    ggplot(
+        aes(x = PC1, y = factor(species, levels = loadingsDF$species),
+        fill = PC1 < 0)) +
+    geom_bar(stat = 'identity') + 
+    facet_wrap(.~transform, scales = 'free') +
+    theme_linedraw(base_size = 20) +
+    scale_fill_manual(values = unname(pal[c(6, 11)])) #+
+    # scale_y_discrete(labels = function(x) str_replace_all(x, '\\.\\.\\.(.*)',''))
+
+```
+
+### Distances between samples
+
+We can also directly calculate distances between samples based on sample composition space. This can give us a better idea about outliers and how samples group together. We can also use any of the clustering metrics to test coherence of groups. 
+
+In compositional analysis, the method for calculating distances between samples proposed by John Aitchison [@aitchison_concise_2005] remains the a popular method. Termed Aitchison Distance, it is the Euclidean distance between samples based on CLR transformed counts of species. 
+
+```{r, fig.width=10,fig.height=6}
+
+clr_distances <- clrTb %>%
+    mutate(sample_group = glue::glue("{sample}_{group}")) %>%
+    column_to_rownames("sample_group") %>%
+    select(-c(group, sample)) %>%
+    dist(method = "euclidean")
+
+distdf <- reshape2::melt(as.matrix(clr_distances), varnames = c("from", "to"))
+
+datatable(distdf)
+
+distlong <- distdf %>%
+    separate(from, c('sample1', 'group1'), sep = '_', remove = FALSE) %>% 
+    separate(to, c('sample2', 'group2'), sep = '_', remove = FALSE)
+            
+distlong %>%
+    filter(sample1 != sample2) %>% 
+    mutate(
+        distance_group = case_when(
+            str_detect(group1, "Normal") & str_detect(group2, "Normal") ~ "between healthy",
+            str_detect(group1, "Normal") & str_detect(group2, "Crohn") ~ 'between Normal and CD',
+            str_detect(group1, "Crohn") & str_detect(group2, "Normal") ~ 'between Normal and CD',
+            str_detect(group1, "Crohn") & str_detect(group2, "Crohn") ~ 'between CD'
+        )) %>% 
+    ggplot(aes(x=value,fill=distance_group)) +
+    geom_density(alpha=0.4) + 
+    ggtitle('Aitchison Distances between and within groups') +
+    theme_bw(base_size = 20) +
+    xlab('euclidean distance')
+
+```
+
+```{r, fig.width=10, fig.height=8}
+heatmap_metadata <- pcaDF %>%
+    dplyr::select(sample_id, Diagnosis) %>%
+    distinct
+
+color_gradient <- colorRampPalette(c("#eff817", "#fe1b07"))(100)
+
+unnamed_pal <- unname(pal)
+
+ha <- HeatmapAnnotation(df = as.data.frame(heatmap_metadata[, c("sample_id", "Diagnosis")]),
+                        col = list(Diagnosis = c("Crohn Disease" = "red", "Normal control" = "green"),
+                                   sample_id = donor_pal),
+                        which = "column")
+
+ComplexHeatmap::Heatmap(as.matrix(clr_distances),
+                        name = "Aitchison Distance",
+                        col = color_gradient,
+                        top_annotation = ha,
+                        clustering_distance_rows = "euclidean",
+                        clustering_distance_columns = "euclidean")
+```
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
