@@ -576,7 +576,7 @@ pcaDF <- lapply(names(pca_ls), function(i) {
     bind_rows()
 # add total number of cells per sample to the PCA for illustration
 total_cells <- se@meta.data %>%
-    count(sample_id, Diagnosis) %>%
+    count(sample_id, Diagnosis, `inferred state`) %>%
     rename(total_cells = n, sample_id=sample_id)
 
 pcaDF <- pcaDF %>% left_join(total_cells)
@@ -602,6 +602,18 @@ ggplot(pcaDF, aes(x = PC1, y = PC2, color = total_cells, label = sample_id)) +
         legend.text = element_text(angle = 45, hjust = 1),
         legend.position = "bottom") +
   scale_color_gradient(low = 'turquoise', high = 'royalblue')
+
+
+ggplot(pcaDF, aes(x = PC1, y = PC2, color = `inferred state`, label = sample_id)) +
+  geom_point(size=4) +
+  geom_text_repel() +
+  facet_wrap(~ transform, scales = "free") +
+  labs(title = "PCA colored by total cell number") +
+  theme_linedraw(base_size = 20) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.position = "bottom") +
+    scale_color_manual(values = c("red", "green", "orange"))
+
 ```
 
 ```{r, fig.height=18, fig.width=20}
