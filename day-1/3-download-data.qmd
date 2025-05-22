@@ -28,6 +28,13 @@ In this notebook we are going to download the data for the rest of the workshop.
 
 ## Libraries
 ```{r}
+if (!requireNamespace("pak", quietly = TRUE))
+    install.packages("pak")
+if (!requireNamespace("anndataR", quietly = TRUE))
+    pak::pak("scverse/anndataR")
+if (!requireNamespace("Seurat", quietly = TRUE))
+    install.packages("Seurat")
+
 library(anndataR)
 library(Seurat)
 ```
@@ -39,14 +46,14 @@ library(Seurat)
 # Download the data in data/ directory
 download.file(
     url = "https://cellgeni.cog.sanger.ac.uk/gutcellatlas/pediatric_RAWCOUNTS_cellxgene_c.h5ad",
-    destfile = "../data/workshop-data.h5ad",
-    method = "auto",
+    destfile = "workshop-data.h5ad",
+    method = "wget",
     extra = "-r -p --random-wait")
 ```
 
 Note that we downloaded the data in h5ad format, in order to be able to work with it using Seurat we need to convert it to that format. We'll use the function `read_h5ad` from `anndataR` to load the data and convert it to seurat in one line.
 ```{r}
-se <- anndataR::read_h5ad("../data/workshop-data.h5ad", to = "Seurat")
+se <- anndataR::read_h5ad("workshop-data.h5ad", to = "Seurat")
 ```
 
 Let's check how the Seurat object looks like
