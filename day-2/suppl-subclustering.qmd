@@ -1,5 +1,5 @@
 ---
-title: "8 - Subclustering"
+title: "9 - Subclustering"
 author: "CDN team"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 format:
@@ -12,7 +12,7 @@ format:
     embed-resources: true
     self-contained-math: true
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -121,15 +121,13 @@ names(pal) <- sort(unique(se$Celltype))
 
 donor_pal <- c(
     "#66C2A4", "#41AE76", "#238B45", "#006D2C",
-    "#41B6C4", "#1D91C0", "#225EA8", "#253494", "#081D58",
-    "#FFEDA0", "#FED976", "#FEB24C", "#f79736", "#FD8D3C",
-    "#FC4E2A", "#E31A1C", "#BD0026", "#ad393b", "#800000", "#800050")
+    "#41B6C4", "#1D91C0", "#225EA8", "#253494",
+    "#FD8D3C", "#FC4E2A", "#E31A1C", "#BD0026",
+    "#ad393b", "#800000", "#800050")
 
 names(donor_pal) <- c(
-    "Normal 1", "Normal 2", "Normal 3", "Normal 4",
-    "Flu 1", "Flu 2", "Flu 3", "Flu 4", "Flu 5",
-    "nCoV 1", "nCoV 2", "nCoV 3", "nCoV 4", "nCoV 5",
-    "nCoV 6", "nCoV 7", "nCoV 8", "nCoV 9", "nCoV 10", "nCoV 11"  
+    "T024", "T036", "T44", "T057", "T110", "T160", "T161", "T182",
+    "T017", "T019", "T176", "T189", "T197", "T203", "T202"
 )
 ```
 
@@ -149,7 +147,6 @@ Let's extract the top 3000 HVGs from the whole data across all cell types.
 ```{r}
 hvg_full <- VariableFeatures(se)
 ```
-
 
 ## Analysis
 
@@ -177,7 +174,7 @@ seurat_parameter_scan <- function(srobj, nf, pc, k, res) {
     ScaleData(features = head(VariableFeatures(object = .), nf)) %>%
     RunPCA(npcs = pc, verbose = FALSE) %>%
     FindNeighbors(dims = 1:pc, k.param = k) %>%
-    FindClusters(resolution = res)
+    FindClusters(resolution = res, verbose = FALSE)
 
   # Extract Idents and name the output vector
   idents <- Idents(srobj)
@@ -205,7 +202,7 @@ names(paramscan) <- parameter_df %>%
 saveRDS(paramscan, '../data/covid_flu_srobj_clusters_paramscan.rds')
 ```
 
-```{r fig.width=9, fig.height=12}
+```{r fig.width=12, fig.height=12}
 paramscan <- readRDS('../data/covid_flu_srobj_clusters_paramscan.rds')
 
 paramscan <- bind_cols(paramscan)
@@ -250,7 +247,7 @@ ggplot(paramscan_long %>%
 ```
 
 
-Take a close look at the results. When we modulate nfeatures or nPCs, we don't directly see changes in the number of clusters found. But, like we saw in the previous sessions, modulating the k.param and the clustering resolution have outsized effects on the number of clusters found.
+Take a close look at the results. When we modulate nfeatures or nPCs, we don't directly see changes in the number of celltypes found. But, like we saw in the previous sessions, modulating the k.param and the clustering resolution have outsized effects on the number of clusters found.
 
 But if we're looking for a rare celltype, we must include more information, right? It makes most sense to increase both the nfeatures, nPCs, AND clustering resolution to find that celltype - because we need to make sure we are including the genes that define the celltype, and making small enough clusters to be able to find it. 
 
@@ -258,121 +255,10 @@ But if we're looking for a rare celltype, we must include more information, righ
 ## Comparing subclustering  - using full dataset HVGs within only the subset
 To do this we will focus on the T cell compartment.
 
-First let's check how much the HVG change between both resolutions
+First let's process our T cell subset object with the HVG obtained from the whole dataset - `hvg_full`:
 ```{r}
-tse <- tse %>%
-    NormalizeData() %>% 
-    FindVariableFeatures(
-        method = "vst",
-        nfeatures = 3000,
-        verbose = FALSE)
-
-table(VariableFeatures(tse_sub) %in% hvg_full)
-```
-
-We can see how by recomputing the HVG we replace 33% of the HVG genes which capture the variability present in the T cell subset. 
-
-Looking into what these genes are
-```{r}
-head(setdiff(VariableFeatures(tse_sub),  hvg_full), n = 100)
-head(intersect(VariableFeatures(tse_sub),  hvg_full), n = 100)
-```
-
-We see that within the intersecting genes we see a lot of immunoglobulin-related genes. Let's adress that and check if we need to clean up this level of annotation.
-
-Now let's recompute the HVG for the T cell subset to capture the variability within that subset:
-```{r}
-tse_sub <- tse %>%
-    ScaleData(verbose = FALSE, features = VariableFeatures(.)) %>% 
-    RunPCA(
-        npcs = 20,
-        verbose = FALSE
-    ) %>%
-    FindNeighbors() %>%
-    FindClusters(resolution = c(0.05, 0.1, 0.15, 0.2)) %>%
-    RunUMAP(dims = 1:20)
-```
-
-Let's look at the different cluster resolutions
-```{r}
-# Visualize these clusters
-DimPlot(
-    tse_sub,
-    reduction = 'umap',
-    group.by = c("RNA_snn_res.0.05", "RNA_snn_res.0.1",
-                 "RNA_snn_res.0.15", "RNA_snn_res.0.2"))
-```
-
-Now let's check where the HVG fall
-```{r fig.width=9, fig.height=6}
-VlnPlot(
-    tse_sub,
-    features = c("JCHAIN", "IGKC", "MZB1", "IGHG1", "CD3E", "MKI67", "S100A8", "HBB"),
-    group.by = "RNA_snn_res.0.15",
-    pt.size = 0)
-```
-
-Clearly cluster 7 is driving a lot of the variability in this susbset which we don't want since it seems to encompass proliferating cells along with cluster 6. For the purpose of this exercise we are going to remove them so we clearly focus on the T cells. Moreover, cluster 3 seems to be myeloid cell doublets.
-
-```{r}
-tse_sub <- tse_sub[, tse_sub$RNA_snn_res.0.15 %in% c(0, 1, 2, 4, 5)]
-
-DimPlot(
-    tse_sub,
-    reduction = 'umap',
-    group.by = "RNA_snn_res.0.15")
-```
-
-Re-process the object to obtain T cell specific HVGs
-```{r}
-tse_sub <- tse_sub %>%
+tse_full <- tse %>%
     NormalizeData() %>%
-    FindVariableFeatures(
-        method = "vst",
-        nfeatures = 3000,
-        verbose = FALSE) %>% 
-    ScaleData(verbose = FALSE, features = VariableFeatures(.)) %>% 
-    RunPCA(
-        npcs = 20,
-        verbose = FALSE
-    ) %>%
-    FindNeighbors() %>%
-    FindClusters(resolution = c(0.05, 0.1, 0.15, 0.2)) %>%
-    RunUMAP(dims = 1:20)
-```
-
-Look at the new HVGs
-
-```{r}
-table(VariableFeatures(tse_sub) %in% hvg_full)
-```
-
-```{r}
-head(setdiff(VariableFeatures(tse_sub),  hvg_full), n = 100)
-head(intersect(VariableFeatures(tse_sub),  hvg_full), n = 100)
-head(VariableFeatures(tse_sub), n = 100)
-```
-
-Look at the updated embedding
-Let's look at the different cluster resolutions
-```{r}
-# Visualize these clusters
-DimPlot(
-    tse_sub,
-    reduction = 'umap',
-    group.by = c("RNA_snn_res.0.05", "RNA_snn_res.0.1",
-                 "RNA_snn_res.0.15", "RNA_snn_res.0.2"))
-
-dim_sub <- DimPlot(
-    tse_sub,
-    reduction = 'umap',
-    group.by = "RNA_snn_res.0.2")
-```
-
-
-Then let's process our T cell subset object with the HVG obtained from the whole dataset - `hvg_full`:
-```{r}
-tse_full <- tse_sub %>%
     ScaleData(
         verbose = FALSE,
         features = hvg_full) %>% 
@@ -381,8 +267,7 @@ tse_full <- tse_sub %>%
         npcs = 20,
         verbose = FALSE) %>%
     FindNeighbors() %>%
-    FindClusters(resolution = c(0.05, 0.1, 0.15, 0.2)) %>%
-    RunUMAP(dims = 1:20)
+    FindClusters(resolution = c(0.05, 0.1, 0.15, 0.2), verbose = FALSE)
 
 # Visualize these clusters
 DimPlot(
@@ -394,13 +279,74 @@ DimPlot(
 dim_full <- DimPlot(
     tse_full,
     reduction = 'umap',
-    group.by = "RNA_snn_res.0.2")
+    group.by = "RNA_snn_res.0.15")
+```
+
+Now let's recompute the HVG for the T cell subset to capture the variability within that subset:
+```{r}
+tse_sub <- tse %>%
+    FindVariableFeatures(
+        method = "vst",
+        nfeatures = 3000,
+        verbose = FALSE) %>%
+    ScaleData(verbose = FALSE, features = VariableFeatures(.)) %>% 
+    RunPCA(
+        npcs = 20,
+        verbose = FALSE
+    ) %>%
+    FindNeighbors() %>%
+    FindClusters(resolution = c(0.05, 0.1, 0.15, 0.2), verbose = FALSE) %>%
+    RunUMAP(dims = 1:20, verbose = FALSE)
+
+# Visualize these clusters
+DimPlot(
+    tse_sub,
+    reduction = 'umap',
+    group.by = c("RNA_snn_res.0.05", "RNA_snn_res.0.1",
+                 "RNA_snn_res.0.15", "RNA_snn_res.0.2"))
+
+dim_sub <- DimPlot(
+    tse_sub,
+    reduction = 'umap',
+    group.by = "RNA_snn_res.0.15")
 ```
 
 Right off the bat, how do these UMAPs compare to each other
 ```{r fig.width=12, fig.height=5}
 dim_full + dim_sub
 ```
+
+What you're probably wondering first is, hey would I have found these clusters if I had just increased the number of clusters I used? 
+```{r}
+data_alluvial <- data.frame(
+    bc = colnames(tse_full),
+    full_hvg = tse_full$RNA_snn_res.0.15,
+    sub_hvg = tse_sub[, colnames(tse_full)]$RNA_snn_res.0.15) %>% 
+    dplyr::count(full_hvg, sub_hvg)
+
+ggplot(data = data_alluvial,
+       aes(axis1 = full_hvg, axis2 = sub_hvg, y = n)) +
+    geom_alluvium(aes(fill = full_hvg), width = 0.1) +
+    geom_stratum(width = 0.1) +
+    geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+    theme_minimal() +
+    labs(title = "Alluvial plot of Clustering using full data HVG or  subcluster HVG",
+         x = "Cluster assignment",
+         y = "N")
+
+```
+
+Both clustering resolutions seem to be very similar but using specific HVG we are able to detect one more cluster at the same resolution and, *in theory*, the clusters should be more specific.
+
+If we check for example the overlap of highly variable features between the two methods, we'll find there are very few overlapping
+
+```{r}
+table(VariableFeatures(tse_sub) %in% hvg_full)
+head(setdiff(VariableFeatures(tse_sub),  hvg_full), n = 50)
+intersect(VariableFeatures(tse_sub),  hvg_full)
+```
+
+We can see how by recomputing the HVG we replace 33% of the HVG genes which capture the variability present in the T cell subset. 
 
 It looks like UMAP_1 is clearly separating 2 populations... let's look at some QC metrics to see what might be going on by looking at the `predicted.id`
 ```{r}
@@ -420,19 +366,19 @@ print(tse_sub[["pca"]], dims = 1:10, nfeatures = 15)
 
 Some interesting PCs are the following:
 
--   PC1 contains a lot of ribosomal genes in the positive arm and cytotoxic in the negative
--   PC2 contains genes related to activated T cells like CD69
+-   PC1 contains a lot of proliferation related genes
+-   PC5 contains a lot of B cell related genes in the negative loadings
 -   PC8 contains a lot of myeloid genes with high loadings
 
 ```{r fig.width=12, fig.height=5}
 DimPlot(
     tse_sub,
-    dims = c(1, 2),
+    dims = c(1, 5),
     reduction = "pca",
     group.by = "predicted.id",
     label = TRUE) | DimPlot(
     tse_sub,
-    dims = c(1, 10),
+    dims = c(1, 8),
     reduction = "pca",
     group.by = "predicted.id",
     label = TRUE)
@@ -462,8 +408,6 @@ ct_genes <- c(
     # T cell genes
     "CD3D", "CD3E", "CD8B",
     "TRAC", "TRBC1", "TRDC",
-    # CD4 T cells
-    "CD4", "FOXP3",
     # NK genes
     "NCR1", "NCR2", "NCR3",
     "KLRF1", "KLRC2"
@@ -481,7 +425,7 @@ Seurat::DotPlot(
   ggplot2::labs(x = "", y = "")
 ```
 
-Clusters 6 and 7 seem to be proliferating cells. 6 appeared to have a mix of T and Myeloid cells and 7 are B cells. Moreover, cluster 3 is simultaneously expressing Myeloid and T cell genes which could be an indication that these are doublets. Let's double check these cells are in fact doublets:
+Clusters 6 and 7 seem to be proliferating cells. 6 appeard to have a mix of T and myeloid cells and 7 are B cells. Moreover, cluster 3 is simultaneously expressing Myeloid and T cell genes which could be an indication that these are doublets. Let's double check these cells are in fact doublets:
 
 ```{r}
 # Scale gene expression of genes of interest
@@ -543,7 +487,38 @@ dim_sub <- DimPlot(
     group.by = c("RNA_snn_res.0.15"))
 ```
 
-As showcased in the clustering algorithm a data-drive way to guide the decision making of the right clustering would be to run the Silhouette Analysis. For the prupose of this notebook we are going to move forward with 0.15.
+As showcased in the clustering algorithm a data-driven way to guide the decision making of the right clustering would be to run the Silhouette Analysis. For the purpose of this notebook we are going to move forward with 0.15.
+
+```{r fig.width=12, fig.height=5}
+dim_full + dim_sub
+```
+
+Let's compare the clusters with those obtained with the original full HVG genes
+```{r}
+temp_df <- tse_sub@meta.data %>%
+    rownames_to_column("bc") %>%
+    dplyr::select(bc, RNA_snn_res.0.15) %>%
+    dplyr::rename(sub_hvg = RNA_snn_res.0.15)
+    
+
+data_alluvial2 <- tse_full@meta.data %>%
+    rownames_to_column("bc") %>%
+    dplyr::rename(full_hvg = RNA_snn_res.0.15) %>%
+    left_join(temp_df, by = "bc") %>%
+    mutate(sub_hvg = if_else(is.na(sub_hvg), "removed", sub_hvg)) %>%
+    dplyr::count(full_hvg, sub_hvg)
+
+ggplot(data = data_alluvial2,
+       aes(axis1 = full_hvg, axis2 = sub_hvg, y = n)) +
+    geom_alluvium(aes(fill = sub_hvg), width = 0.1) +
+    geom_stratum(width = 0.1) +
+    geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Dark2")
+    labs(title = "Alluvial plot of Clustering using full data HVG or  subcluster HVG",
+         x = "Cluster assignment",
+         y = "N")
+```
 
 ### Annotation playground
 
@@ -603,6 +578,13 @@ VlnPlot(
 
 ```
 
+We can see how TIGIT is a gene uniquely expressed in cluster 4 which has come off of 0. How would this look like in the embedding with the full dataset
+```{r fig.width=6, fig.height=5}
+FeaturePlot(
+    tse_full,
+    features = "TIGIT")
+```
+
 #### Cluster 7
 
 This cluster seems to be expressin Hemoglobin and MHC2 genes....
@@ -640,7 +622,7 @@ tse_sub@meta.data <- tse_sub@meta.data %>%
       RNA_snn_res.0.15 == 4 ~ "NK TIGIT+/CX3CR1+/KLRC2+",
       RNA_snn_res.0.15 == 5 ~ "",
       RNA_snn_res.0.15 == 6 ~ "",
-      RNA_snn_res.0.15 == 7 ~ "Doublets",
+      RNA_snn_res.0.15 == 7 ~ "Doublets/lowQ",
       RNA_snn_res.0.15 == 8 ~ ""
       )
   )
@@ -648,6 +630,11 @@ tse_sub@meta.data <- tse_sub@meta.data %>%
 DimPlot(tse_sub, group.by = "annotation_lvl2")
 ```
 
+
+```{r}
+tse@meta.data[, c('CellID', 'annotation_lvl2')] %>% head
+write_csv()
+```
 
 ### Comparing PCA
 
