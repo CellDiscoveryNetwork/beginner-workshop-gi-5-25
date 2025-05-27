@@ -4,7 +4,7 @@
 
 -   **Where**: Karp 6 Conference Room
 -   **Course Material**:
-    -   [Introduction to R/Rstudio/Seurat](http://htmlpreview.github.io/?https://github.com/CellDiscoveryNetwork/beginner-workshop-gi-5-25/blob/main/day-1/1%20-%20Introduction.pdf) [[Recording](https://drive.google.com/drive/folders/1h5XdDTF2iCdJnKA_IW3qVucDCBz0jIwu)]
+    -   [Introduction to R/Rstudio/Seurat](http://htmlpreview.github.io/?https://github.com/CellDiscoveryNetwork/beginner-workshop-gi-5-25/blob/main/day-1/1%20-%20Introduction.pdf) [[Recording](https://drive.google.com/file/d/1HoIPLuOT6bteMIPsGSaUd_Pzj0ipcDrI/view?usp=sharing)]
         -   How to navigate Rstudio
         -   Fundamentals and data wrangling in R
         -   Working with a Seurat object
