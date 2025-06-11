@@ -20,7 +20,7 @@ editor_options:
 
 -   **Where**: Karp 6 Conference Room
 -   **Course Material**:
-    -   [Introduction to R/Rstudio/Seurat](http://htmlpreview.github.io/?https://github.com/CellDiscoveryNetwork/beginner-workshop-gi-5-25/blob/main/day-1/1%20-%20Introduction.pdf) [[Recordinghttps://drive.google.com/file/d/1HoIPLuOT6bteMIPsGSaUd_Pzj0ipcDrI/view?usp=sharing
+    -   [Introduction to R/Rstudio/Seurat](http://htmlpreview.github.io/?https://github.com/CellDiscoveryNetwork/beginner-workshop-gi-5-25/blob/main/day-1/1%20-%20Introduction.pdf) [[Recording](https://drive.google.com/file/d/1HoIPLuOT6bteMIPsGSaUd_Pzj0ipcDrI/view?usp=sharing)]
         -   How to navigate Rstudio
         -   Fundamentals and data wrangling in R
         -   Working with a Seurat object
@@ -47,7 +47,7 @@ editor_options:
         -   Brief overview on PCA and how to use it for sc-RNAseq
         -   KNN-graph representation of the data
         -   Correcting batch effects with Harmony
-    -   [Clustering](http://htmlpreview.github.io/?https://github.com/CellDiscoveryNetwork/beginner-workshop-gi-5-25/blob/main/day-2/7-Clustering.html) [[recording](https://drive.google.com/file/d/10T0ompobzsXZPsKcPFtUIO36XwOS_1Eo/view?usp=sharing)]
+    -   [Clustering](http://htmlpreview.github.io/?https://github.com/CellDiscoveryNetwork/beginner-workshop-gi-5-25/blob/main/day-2/7-Clustering.html) [[Recording](https://drive.google.com/file/d/10T0ompobzsXZPsKcPFtUIO36XwOS_1Eo/view?usp=sharing)]
         -   How to cluster sc-RNAseq data
         -   What algorithms can we use
         -   How to assess if a clustering resolution is good
@@ -61,4 +61,6 @@ editor_options:
         -   How to iteratively annotate a dataset
 
 ### Exit Forms
-TBD
+[Day 1](https://forms.gle/273toLmTTmQ7GBsX7) 
+
+[Day 2](https://forms.gle/vhKtAa3fiPqEk5me6)
